@@ -74,7 +74,16 @@ npm install
 
 ## Starten
 
-### Schritt 1 — Chrome mit Remote-Debugging öffnen
+```bash
+npm start
+```
+
+Beim Start prüft der Splash-Screen automatisch, ob Chrome bereits auf Port 9222
+mit Remote-Debugging läuft. Falls nicht, sucht CDP Analyzer die lokale
+Chrome-Installation und kann Chrome direkt mit einem isolierten Profil im
+Debug-Modus starten.
+
+### Optional: Chrome manuell mit Remote-Debugging öffnen
 
 **macOS:**
 
@@ -101,13 +110,7 @@ google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/ChromeDebug
 > `--user-data-dir` muss ein **neues, leeres Verzeichnis** sein.
 > Im geöffneten Chrome dann wie gewohnt einloggen — SSO, 2FA, alles funktioniert.
 
-### Schritt 2 — Analyzer starten
-
-```bash
-npm start
-```
-
-### Schritt 3 — Verbinden
+### Verbinden
 
 1. **⟳ Targets** klicken → offene Chrome-Tabs erscheinen
 2. Gewünschten Tab auswählen

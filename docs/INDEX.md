@@ -64,10 +64,10 @@ Vanilla JS/CSS    — kein Framework, kein Build-Step
 ## Starten
 
 ```bash
-# Chrome mit Debug-Port:
+# App starten:
+npm start
+
+# Optionaler manueller Chrome-Start mit Debug-Port:
 /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
   --remote-debugging-port=9222 --user-data-dir=/tmp/ChromeDebug
-
-# App:
-npm start
 ```

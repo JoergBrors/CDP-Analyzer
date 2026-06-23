@@ -92,7 +92,7 @@ Der Renderer hat keinerlei Zugriff auf:
 ### CDP-Verbindung
 
 - Nur zu `localhost:9222` — kein Remote-Zugriff möglich
-- Chrome muss explizit mit `--remote-debugging-port=9222` gestartet werden
+- Chrome muss explizit mit `--remote-debugging-port=9222` laufen; der Splash-Screen kann diesen Start lokal auslösen
 - Die App verbindet sich NUR auf expliziten Nutzer-Request (Tab-Auswahl + Verbinden-Button)
 
 ---

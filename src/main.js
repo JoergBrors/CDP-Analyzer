@@ -182,6 +182,7 @@ let cdpWs = null;             // WebSocket zum Browser-Target
 let callbackMap = new Map();  // id → callback für CDP-Antworten
 let cdpMsgId = 1;
 let targetWsUrl = null;
+let cachedChromePath = null;
 
 // Shared CDP-Kontext (wird vom Renderer via IPC gefüllt)
 let sharedContext = {
@@ -490,7 +491,8 @@ ipcMain.handle('splash:check', async () => {
   }
 
   send('searching', 'Suche Chrome-Installation im System…');
-  const chromePath = findChrome();
+  const chromePath = cachedChromePath || findChrome();
+  cachedChromePath = chromePath || null;
 
   if (chromePath) {
     send('found', chromePath);
@@ -502,9 +504,14 @@ ipcMain.handle('splash:check', async () => {
            chromePath, savedProfile: prefs.chromeProfile || null };
 });
 
-ipcMain.handle('splash:startChrome', async (_, profileDir) => {
-  const chromePath = findChrome();
+ipcMain.handle('splash:startChrome', async (_, profileDir, requestedChromePath) => {
+  const chromePath = requestedChromePath || cachedChromePath || findChrome();
   if (!chromePath) return { ok: false, error: 'Chrome nicht gefunden.' };
+  if (!fs.existsSync(chromePath)) {
+    cachedChromePath = null;
+    return { ok: false, error: `Chrome-Pfad existiert nicht mehr: ${chromePath}` };
+  }
+  cachedChromePath = chromePath;
 
   const profile = profileDir || path.join(os.tmpdir(), 'cdp-debug-profile');
   // Profilpfad merken

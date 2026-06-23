@@ -292,6 +292,8 @@ if (window.splash) {
         addLog('Durchsuche bekannte Pfade, Spotlight und Registry…', 'info');
         break;
       case 'found':
+        foundChromePath = msg;
+        document.getElementById('phaseText').textContent = 'Chrome gefunden…';
         addLog('Chrome gefunden: ' + msg, 'ok');
         break;
       case 'not-found':
@@ -388,7 +390,7 @@ async function startChrome() {
 
   let result;
   try {
-    result = await window.splash.startChrome(profilePath || null);
+    result = await window.splash.startChrome(profilePath || null, foundChromePath || null);
   } catch (e) {
     result = { ok: false, error: e.message };
   }
