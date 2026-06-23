@@ -1,0 +1,14 @@
+{
+  "name": "cdp-analyzer",
+  "version": "1.0.0",
+  "description": "CDP Browser Analysis Tool — Network, Assets, JS Debugger",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "dependencies": {
+    "electron": "^30.0.0",
+    "ws": "^8.17.0"
+  }
+}

@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CDP Analyzer</title>
+<style>
+/* ── Reset & Tokens ─────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg0:    #0d1117;
+  --bg1:    #161b22;
+  --bg2:    #1c2333;
+  --bg3:    #21262d;
+  --border: #30363d;
+  --text0:  #e6edf3;
+  --text1:  #8b949e;
+  --text2:  #484f58;
+  --accent: #58a6ff;
+  --green:  #3fb950;
+  --yellow: #d29922;
+  --red:    #f85149;
+  --purple: #bc8cff;
+  --orange: #ffa657;
+  --cyan:   #39c5cf;
+  --mono:   'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  --sans:   -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius: 6px;
+}
+
+html, body {
+  height: 100%; overflow: hidden;
+  background: var(--bg0); color: var(--text0); font-family: var(--sans); font-size: 13px;
+  overscroll-behavior: none;
+}
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+/* Titlebar */
+#titlebar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 0 16px 0 80px; height: 42px; min-height: 42px;
+  background: var(--bg1); border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag; -webkit-user-select: none; user-select: none;
+}
+#titlebar * { -webkit-app-region: no-drag; }
+.logo { font-size: 14px; font-weight: 700; color: var(--accent); letter-spacing: .03em; }
+.logo span { color: var(--text1); font-weight: 400; }
+
+/* Connection bar */
+#connbar {
+  display: flex; align-items: center; gap: 8px;
+  padding: 0 16px; height: 44px; min-height: 44px;
+  background: var(--bg1); border-bottom: 1px solid var(--border);
+}
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text2); flex-shrink: 0; }
+.dot.ok { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.dot.err { background: var(--red); }
+select, input[type=text] {
+  background: var(--bg2); border: 1px solid var(--border); color: var(--text0);
+  border-radius: var(--radius); padding: 4px 8px; font-size: 12px; font-family: var(--sans);
+}
+select { cursor: pointer; }
+input[type=text] { width: 280px; font-family: var(--mono); }
+btn, button {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 12px; border-radius: var(--radius); border: 1px solid var(--border);
+  background: var(--bg3); color: var(--text0); font-size: 12px; cursor: pointer;
+  white-space: nowrap; transition: background .12s, border-color .12s;
+}
+button:hover { background: var(--bg2); border-color: var(--accent); }
+button.primary { background: #1f4068; border-color: var(--accent); color: var(--accent); }
+button.primary:hover { background: #1a3a5c; }
+button.danger { border-color: var(--red); color: var(--red); }
+button.danger:hover { background: #2d1318; }
+button:disabled { opacity: .4; cursor: not-allowed; }
+#status-text { font-size: 11px; color: var(--text1); margin-left: 4px; }
+
+/* Tab bar */
+#tabbar {
+  display: flex; gap: 2px; padding: 6px 12px 0;
+  background: var(--bg1); border-bottom: 1px solid var(--border);
+}
+.tab {
+  padding: 6px 16px; border-radius: var(--radius) var(--radius) 0 0;
+  cursor: pointer; font-size: 12px; color: var(--text1);
+  border: 1px solid transparent; border-bottom: none;
+  transition: color .12s, background .12s;
+}
+.tab:hover { color: var(--text0); }
+.tab.active { color: var(--text0); background: var(--bg0); border-color: var(--border); }
+.tab .badge {
+  display: inline-block; background: var(--accent); color: #000;
+  border-radius: 9px; padding: 0 5px; font-size: 10px; font-weight: 700; margin-left: 5px;
+}
+
+/* Panel host */
+#panels { flex: 1; overflow: hidden; background: var(--bg0); }
+.panel { display: none; height: 100%; flex-direction: column; overflow: hidden; }
+.panel.active { display: flex; }
+
+/* ── Shared: Toolbar ─────────────────────────────────────────────────────── */
+.toolbar {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+  background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.toolbar input[type=text] { flex: 1; max-width: 320px; }
+.spacer { flex: 1; }
+.tag {
+  display: inline-block; padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+}
+.tag.img    { background: #1a3a5c; color: var(--accent); }
+.tag.js     { background: #2d2200; color: var(--yellow); }
+.tag.css    { background: #1a2d1a; color: var(--green); }
+.tag.font   { background: #2d1a2d; color: var(--purple); }
+.tag.doc    { background: #2d1a1a; color: var(--red); }
+.tag.xhr    { background: #1a2d2d; color: var(--cyan); }
+.tag.other  { background: var(--bg3); color: var(--text1); }
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+.tbl-wrap { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; will-change: scroll-position; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; }
+thead th {
+  position: sticky; top: 0; background: var(--bg1); color: var(--text1);
+  text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border);
+  font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .05em;
+  white-space: nowrap;
+}
+tbody tr { border-bottom: 1px solid var(--border); cursor: pointer; }
+tbody tr:hover { background: var(--bg2); }
+tbody tr.selected { background: #1f3050; }
+tbody td { padding: 5px 10px; color: var(--text0); max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mono { font-family: var(--mono); font-size: 11px; }
+.num { text-align: right; color: var(--text1); }
+.ok200 { color: var(--green); }
+.ok3xx { color: var(--yellow); }
+.err4xx, .err5xx { color: var(--red); }
+
+/* ── Detail pane ─────────────────────────────────────────────────────────── */
+.split { display: flex; flex: 1; overflow: hidden; }
+.split-left  { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.split-right { width: 420px; min-width: 180px; max-width: none; display: flex; flex-direction: column; overflow: hidden; }
+.detail-header { padding: 8px 12px; background: var(--bg1); border-bottom: 1px solid var(--border); font-size: 11px; color: var(--text1); display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.detail-header strong { color: var(--text0); font-size: 12px; }
+.detail-tabs { display: flex; gap: 1px; padding: 4px 8px; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.dtab { padding: 3px 10px; border-radius: 3px; cursor: pointer; font-size: 11px; color: var(--text1); }
+.dtab:hover { color: var(--text0); }
+.dtab.active { background: var(--bg3); color: var(--text0); }
+.detail-body { flex: 1; overflow-y: auto; padding: 10px 12px; overscroll-behavior-y: contain; will-change: scroll-position; }
+pre { font-family: var(--mono); font-size: 11px; color: var(--text0); white-space: pre-wrap; word-break: break-all; line-height: 1.6; }
+.kv-table { width: 100%; font-size: 12px; }
+.kv-table td:first-child { color: var(--text1); padding-right: 12px; white-space: nowrap; font-family: var(--mono); font-size: 11px; vertical-align: top; padding-bottom: 4px; }
+.kv-table td:last-child { color: var(--text0); word-break: break-all; padding-bottom: 4px; }
+
+/* ── Network stats bar ───────────────────────────────────────────────────── */
+#net-stats { display: flex; gap: 16px; padding: 4px 12px; background: var(--bg1); border-top: 1px solid var(--border); font-size: 11px; color: var(--text1); flex-shrink: 0; }
+#net-stats span b { color: var(--text0); }
+
+/* ── Debugger panel ──────────────────────────────────────────────────────── */
+#panel-debugger { display: none; }
+#panel-debugger.active { display: flex; flex-direction: row; }
+.dbg-scripts { width: 240px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.dbg-scripts .pane-title { padding: 6px 10px; font-size: 11px; font-weight: 600; color: var(--text1); border-bottom: 1px solid var(--border); text-transform: uppercase; letter-spacing: .05em; }
+.script-list { flex: 1; overflow-y: auto; overscroll-behavior-y: contain; will-change: scroll-position; }
+.script-item { padding: 5px 10px; font-size: 11px; font-family: var(--mono); cursor: pointer; color: var(--text1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.script-item:hover { background: var(--bg2); color: var(--text0); }
+.script-item.selected { background: var(--bg3); color: var(--accent); }
+.dbg-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.dbg-source { flex: 1; overflow: hidden; position: relative; display: flex; flex-direction: column; }
+.source-toolbar { display: flex; align-items: center; gap: 8px; padding: 5px 10px; background: var(--bg1); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.source-wrap { flex: 1; overflow: auto; display: flex; overscroll-behavior: contain; will-change: scroll-position; }
+.line-nums { padding: 8px 8px 8px 12px; text-align: right; font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--text2); -webkit-user-select: none; user-select: none; background: var(--bg1); border-right: 1px solid var(--border); min-width: 48px; flex-shrink: 0; }
+.line-nums .lnum { cursor: pointer; height: 20px; display: flex; align-items: center; justify-content: flex-end; padding-right: 4px; border-radius: 3px; }
+.line-nums .lnum:hover { background: var(--bg3); color: var(--text0); }
+.line-nums .lnum.bp { background: var(--red); color: #fff; }
+.line-nums .lnum.paused { background: var(--yellow); color: #000; }
+.source-code { flex: 1; padding: 8px 12px; font-family: var(--mono); font-size: 12px; line-height: 20px; white-space: pre; color: var(--text0); overflow: visible; min-width: 0; }
+.source-code .hl-kw { color: var(--purple); }
+.source-code .hl-str { color: var(--green); }
+.source-code .hl-num { color: var(--orange); }
+.source-code .hl-cmt { color: var(--text2); }
+.source-code .hl-fn { color: var(--accent); }
+.dbg-right { width: 300px; border-left: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+.dbg-section { border-bottom: 1px solid var(--border); display: flex; flex-direction: column; }
+.dbg-section-title { padding: 6px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--text1); background: var(--bg1); cursor: pointer; display: flex; justify-content: space-between; }
+.dbg-section-body { flex: 1; overflow-y: auto; padding: 6px 8px; overscroll-behavior-y: contain; will-change: scroll-position; }
+.watch-item { display: flex; align-items: flex-start; gap: 6px; padding: 3px 2px; border-bottom: 1px solid var(--border); font-size: 11px; font-family: var(--mono); }
+.watch-expr { color: var(--accent); flex-shrink: 0; min-width: 80px; }
+.watch-val  { color: var(--text0); word-break: break-all; flex: 1; }
+.watch-val.err { color: var(--red); }
+.watch-remove { margin-left: auto; color: var(--text2); cursor: pointer; flex-shrink: 0; }
+.watch-remove:hover { color: var(--red); }
+.scope-item { font-size: 11px; font-family: var(--mono); padding: 2px 0; }
+.scope-key   { color: var(--text1); }
+.scope-val   { color: var(--cyan); }
+.callframe-item { padding: 4px 6px; font-size: 11px; font-family: var(--mono); cursor: pointer; border-radius: 3px; }
+.callframe-item:hover { background: var(--bg2); }
+.callframe-item.selected { background: var(--bg3); }
+.callframe-fn { color: var(--accent); }
+.callframe-loc { color: var(--text1); font-size: 10px; }
+.paused-bar { background: #2d2200; border-bottom: 1px solid var(--yellow); padding: 5px 12px; font-size: 12px; color: var(--yellow); display: none; flex-shrink: 0; }
+.paused-bar.show { display: flex; align-items: center; gap: 8px; }
+
+/* ── Console / Runtime panel ─────────────────────────────────────────────── */
+.console-out { flex: 1; overflow-y: auto; padding: 6px 0; overscroll-behavior-y: contain; will-change: scroll-position; }
+.console-entry { padding: 4px 12px; font-family: var(--mono); font-size: 12px; border-bottom: 1px solid var(--border); line-height: 1.5; }
+.console-entry.log { color: var(--text0); }
+.console-entry.warn { color: var(--yellow); background: #1a1600; }
+.console-entry.err  { color: var(--red); background: #1a0808; }
+.console-entry.info { color: var(--cyan); }
+.console-input-row { display: flex; align-items: center; gap: 6px; padding: 6px 10px; border-top: 1px solid var(--border); background: var(--bg1); flex-shrink: 0; }
+.console-prompt { color: var(--accent); font-family: var(--mono); font-size: 12px; }
+#console-input { flex: 1; background: transparent; border: none; outline: none; color: var(--text0); font-family: var(--mono); font-size: 12px; }
+
+/* ── Object tree ─────────────────────────────────────────────────────────── */
+.obj-tree { font-family: var(--mono); font-size: 11px; }
+.obj-node { padding: 2px 0; }
+.obj-node .toggle { cursor: pointer; color: var(--text2); -webkit-user-select: none; user-select: none; }
+.obj-node .key { color: var(--text1); }
+.obj-node .val-string  { color: var(--green); }
+.obj-node .val-number  { color: var(--orange); }
+.obj-node .val-boolean { color: var(--purple); }
+.obj-node .val-null    { color: var(--text2); }
+.obj-node .val-obj     { color: var(--cyan); }
+.obj-children { margin-left: 16px; border-left: 1px solid var(--border); padding-left: 8px; }
+
+/* ── API Panel ───────────────────────────────────────────────────────────── */
+.auth-pill {
+  display: inline-flex; align-items: center; gap: 3px;
+  padding: 1px 7px; border-radius: 8px; font-size: 10px; font-family: var(--mono);
+  border: 1px solid;
+}
+.auth-pill.secured   { background: #0d1a10; border-color: #2a4a2a; color: var(--green); }
+.auth-pill.cookie    { background: #2d2200; border-color: #5a4000; color: var(--yellow); }
+.auth-pill.none      { background: var(--bg2); border-color: var(--border); color: var(--text2); }
+.payload-tag         { padding: 1px 5px; border-radius: 4px; font-size: 9px; font-family: var(--mono); background: #2d1a00; color: var(--orange); border: 1px solid #5a3000; }
+.auth-section        { background: var(--bg1); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; margin-bottom: 10px; }
+.auth-section h4     { font-size: 11px; font-weight: 600; color: var(--accent); margin-bottom: 6px; text-transform: uppercase; letter-spacing: .05em; }
+.auth-type-row       { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
+.claim-table         { width: 100%; font-size: 11px; border-collapse: collapse; font-family: var(--mono); }
+.claim-table td      { padding: 3px 6px 3px 0; vertical-align: top; }
+.claim-table td:first-child { color: var(--text1); width: 100px; }
+.claim-table td:last-child  { color: var(--text0); word-break: break-all; }
+/* JWT Decoder */
+.jwt-bar             { font-size: 11px; font-weight: 600; padding: 5px 10px; border-radius: 4px; margin-bottom: 10px; }
+.jwt-bar.valid       { background: #0d1a0d; border: 1px solid var(--green); color: var(--green); }
+.jwt-bar.warn        { background: #2d1a00; border: 1px solid var(--orange); color: var(--orange); }
+.jwt-bar.expired     { background: #1a0808; border: 1px solid var(--red); color: var(--red); animation: pulse-border .8s ease-in-out infinite alternate; }
+@keyframes pulse-border { to { border-color: #ff6666; box-shadow: 0 0 8px #ff000044; } }
+.jwt-badges          { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
+.jwt-badge           { font-size: 10px; padding: 2px 7px; border-radius: 10px; font-weight: 600; }
+.jwt-badge.ms        { background: #00188010; border: 1px solid #0078d4; color: #4fc3f7; }
+.jwt-badge.valid     { background: #0d1a0d; border: 1px solid var(--green); color: var(--green); }
+.jwt-badge.expired   { background: #1a0808; border: 1px solid var(--red); color: var(--red); }
+.jwt-section-title   { font-size: 10px; font-weight: 700; color: var(--text2); text-transform: uppercase; letter-spacing: .08em; margin: 8px 0 4px; }
+.jwt-grid            { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 11px; }
+.jwt-field           { display: contents; }
+.jwt-key             { color: var(--text1); white-space: nowrap; padding: 2px 0; align-self: start; }
+.jwt-val             { color: var(--text0); word-break: break-all; padding: 2px 0; }
+.jwt-val.mono        { font-family: var(--mono); font-size: 10px; color: var(--cyan); }
+.mono                { font-family: var(--mono); font-size: 10px; color: var(--cyan); }
+.jwt-perms           { margin: 6px 0; font-size: 11px; }
+.jwt-chips           { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+.jwt-chip.scope      { background: #0d1a2d; border: 1px solid #2a4a6a; color: #4fc3f7; border-radius: 3px; padding: 1px 6px; font-size: 10px; font-family: var(--mono); }
+.jwt-chip.role       { background: #1a0d2d; border: 1px solid #4a2a6a; color: var(--purple); border-radius: 3px; padding: 1px 6px; font-size: 10px; font-family: var(--mono); }
+.jwt-summary         { cursor: pointer; font-size: 11px; color: var(--text1); padding: 4px 0; outline: none; }
+.jwt-summary:hover   { color: var(--accent); }
+.jwt-decoded details { border-top: 1px solid var(--border); padding-top: 8px; }
+.json-pre            { background: var(--bg0); border: 1px solid var(--border); border-radius: 5px; padding: 10px 12px; font-family: var(--mono); font-size: 11px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; overflow-x: auto; max-height: 400px; overflow-y: auto; }
+.hl-auth             { background: #2d2200; color: var(--yellow); border-radius: 2px; padding: 0 2px; }
+.body-section        { margin-top: 8px; }
+.section-hdr         { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 4px; }
+.section-hdr b       { color: var(--accent); font-size: 11px; }
+.copy-block-btn      { font-size: 10px; padding: 2px 8px; border-radius: 4px; background: var(--bg3); border: 1px solid var(--border); color: var(--text1); cursor: pointer; white-space: nowrap; }
+.copy-block-btn:hover { border-color: var(--accent); color: var(--accent); }
+/* Batch request/response display */
+.batch-item          { border: 1px solid var(--border); border-radius: 4px; margin-bottom: 5px; overflow: hidden; }
+.batch-item-hdr      { display: flex; align-items: center; gap: 7px; padding: 5px 10px; background: var(--bg0); font-size: 11px; flex-wrap: wrap; }
+.batch-idx           { background: var(--bg3); border: 1px solid var(--border); border-radius: 3px; padding: 1px 6px; font-size: 10px; color: var(--text1); font-family: var(--mono); flex-shrink: 0; }
+.batch-method        { color: var(--cyan); font-weight: 600; flex-shrink: 0; font-family: var(--mono); }
+.batch-url           { color: var(--text0); word-break: break-all; flex: 1; font-family: var(--mono); font-size: 10px; }
+.batch-dep           { color: var(--yellow); font-size: 10px; flex-shrink: 0; }
+.batch-ok            { color: var(--green); font-weight: 600; font-family: var(--mono); }
+.batch-status        { color: var(--text1); font-family: var(--mono); }
+.batch-body          { margin: 0 !important; border-radius: 0 !important; border: none !important; border-top: 1px solid var(--border) !important; }
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100%; color: var(--text2); gap: 8px; }
+.empty .icon { font-size: 32px; }
+.empty p { font-size: 13px; }
+
+/* ── Centered title ──────────────────────────────────────────────────────── */
+#titlebar { position: relative; }
+.logo { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); pointer-events: none; white-space: nowrap; }
+
+/* ── Resizable split divider ─────────────────────────────────────────────── */
+.resize-handle {
+  width: 4px; flex-shrink: 0; cursor: col-resize; position: relative;
+  background: var(--border); transition: background .15s; z-index: 2;
+}
+.resize-handle::before { content: ''; position: absolute; inset: 0 -4px; }
+.resize-handle:hover, .resize-handle.active { background: var(--accent); }
+.split-right { width: 420px; min-width: 0; max-width: none; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Row copy button (erscheint beim Hover) ──────────────────────────────── */
+.row-copy-btn {
+  display: none; margin-left: 5px; padding: 0 5px; height: 16px; line-height: 16px;
+  border-radius: 3px; font-size: 10px; border: 1px solid var(--border);
+  background: var(--bg3); color: var(--text1); cursor: pointer; vertical-align: middle;
+}
+tbody tr:hover .row-copy-btn { display: inline-block; }
+.row-copy-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--bg2); }
+
+/* ── kv-table Wert kopieren ──────────────────────────────────────────────── */
+.kv-val { cursor: pointer; transition: color .1s; }
+.kv-val:hover { color: var(--accent) !important; }
+.kv-val::after { content: ' ⎘'; opacity: 0; font-size: 10px; color: var(--accent); }
+.kv-val:hover::after { opacity: 1; }
+
+/* ── Copy Toast ──────────────────────────────────────────────────────────── */
+#copy-toast {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  background: var(--bg3); border: 1px solid var(--green); color: var(--green);
+  padding: 5px 18px; border-radius: 6px; font-size: 12px; pointer-events: none;
+  opacity: 0; transition: opacity .18s; z-index: 9999; white-space: nowrap;
+}
+#copy-toast.show { opacity: 1; }
+
+/* ── WS / SSE Typ-Tags ───────────────────────────────────────────────────── */
+.tag.ws  { background: #0d2000; color: var(--green); }
+.tag.sse { background: #001a2d; color: var(--accent); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Titlebar -->
+  <div id="titlebar">
+    <div class="logo">CDP<span> Analyzer</span></div>
+    <button onclick="window.cdp.openAiWindow()" style="background:#2d1a2d;border-color:#bc8cff;color:#bc8cff" title="AI Analyst öffnen">✦ AI Analyst</button>
+    <div style="flex:1"></div>
+    <span id="status-text">Nicht verbunden</span>
+    <div class="dot" id="conn-dot"></div>
+  </div>
+
+  <!-- Connection bar -->
+  <div id="connbar">
+    <button id="btn-refresh" title="Targets neu laden">⟳ Targets</button>
+    <select id="target-select" style="max-width:400px">
+      <option value="">— Chrome auf Port 9222 gefunden? —</option>
+    </select>
+    <button id="btn-connect" class="primary">Verbinden</button>
+    <div style="flex:1"></div>
+    <button id="btn-clear" title="Alle Daten löschen">✕ Clear</button>
+    <label style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;">
+      <input type="checkbox" id="chk-pause-exceptions"> Pause on exceptions
+    </label>
+  </div>
+
+  <!-- Tabs -->
+  <div id="tabbar">
+    <div class="tab active" data-tab="network">🌐 Network <span class="badge" id="badge-net">0</span></div>
+    <div class="tab" data-tab="assets">🖼 Assets <span class="badge" id="badge-assets">0</span></div>
+    <div class="tab" data-tab="debugger">🐛 Debugger <span class="badge" id="badge-bp">0</span></div>
+    <div class="tab" data-tab="console">⬛ Console <span class="badge" id="badge-console">0</span></div>
+    <div class="tab" data-tab="api">📡 API <span class="badge" id="badge-api">0</span></div>
+  </div>
+
+  <!-- Panels -->
+  <div id="panels">
+
+    <!-- ═══ NETWORK PANEL ═══════════════════════════════════════════════════ -->
+    <div class="panel active" id="panel-network">
+      <div class="toolbar">
+        <input type="text" id="net-filter" placeholder="Filter URL, Typ, Status …">
+        <select id="net-type-filter">
+          <option value="">Alle Typen</option>
+          <option value="image">Images</option>
+          <option value="script">Scripts</option>
+          <option value="stylesheet">CSS</option>
+          <option value="font">Fonts</option>
+          <option value="xhr">XHR/Fetch</option>
+          <option value="document">Document</option>
+          <option value="websocket">WebSocket</option>
+          <option value="eventsource">SSE</option>
+        </select>
+        <label style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="chk-errors-only"> Nur Fehler
+        </label>
+        <label id="deep-intercept-label" title="Fetch-Interception + Hooks für fetch/XHR/sendBeacon/WebSocket/EventSource — deckt versteckte API-Calls auf"
+               style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="chk-deep-intercept"> 🔍 Deep Intercept
+        </label>
+        <div class="spacer"></div>
+        <span style="font-size:11px;color:var(--text1)">Requests: <b id="req-count">0</b></span>
+      </div>
+
+      <div class="split">
+        <div class="split-left">
+          <div class="tbl-wrap" id="net-tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:30px">#</th>
+                  <th style="width:60px">Methode</th>
+                  <th style="width:70px">Status</th>
+                  <th style="width:80px">Typ</th>
+                  <th>URL</th>
+                  <th style="width:80px">Größe</th>
+                  <th style="width:70px">Zeit</th>
+                  <th style="width:70px">Protokoll</th>
+                </tr>
+              </thead>
+              <tbody id="net-tbody"></tbody>
+            </table>
+            <div class="empty" id="net-empty">
+              <div class="icon">🌐</div>
+              <p>Warte auf Netzwerk-Requests …</p>
+              <p style="font-size:11px">Verbinde und lade eine Seite im Browser.</p>
+            </div>
+          </div>
+          <div id="net-stats">
+            <span>Total: <b id="stat-total">0</b></span>
+            <span>Images: <b id="stat-img">0</b></span>
+            <span>Scripts: <b id="stat-js">0</b></span>
+            <span>XHR: <b id="stat-xhr">0</b></span>
+            <span>Übertragen: <b id="stat-size">0 B</b></span>
+            <span>Fehler: <b id="stat-err" style="color:var(--red)">0</b></span>
+          </div>
+        </div>
+
+        <div class="resize-handle"></div>
+        <div class="split-right" id="net-detail">
+          <div class="empty">
+            <div class="icon">←</div>
+            <p>Request auswählen</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ASSETS PANEL ════════════════════════════════════════════════════ -->
+    <div class="panel" id="panel-assets">
+      <div class="toolbar">
+        <input type="text" id="asset-filter" placeholder="Filter …">
+        <div class="spacer"></div>
+        <span style="font-size:11px;color:var(--text1)">Assets: <b id="asset-count">0</b></span>
+      </div>
+      <div class="split">
+        <div class="split-left">
+          <div class="tbl-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:70px">Typ</th>
+                  <th>Dateiname</th>
+                  <th>URL</th>
+                  <th style="width:80px">Größe</th>
+                  <th style="width:80px">Mime</th>
+                  <th style="width:60px">Cache</th>
+                  <th style="width:60px">Initiator</th>
+                </tr>
+              </thead>
+              <tbody id="asset-tbody"></tbody>
+            </table>
+            <div class="empty" id="asset-empty">
+              <div class="icon">🖼</div>
+              <p>Noch keine Assets erfasst.</p>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+        <div class="split-right" id="asset-detail">
+          <div class="empty"><div class="icon">←</div><p>Asset auswählen</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ DEBUGGER PANEL ══════════════════════════════════════════════════ -->
+    <div class="panel" id="panel-debugger">
+      <!-- Paused bar -->
+      <div class="paused-bar" id="paused-bar">
+        ⏸ Pausiert
+        <button onclick="App.dbg.step('resume')">▶ Resume</button>
+        <button onclick="App.dbg.step('stepOver')">↷ Over</button>
+        <button onclick="App.dbg.step('stepInto')">↓ Into</button>
+        <button onclick="App.dbg.step('stepOut')">↑ Out</button>
+        <span id="paused-reason" style="font-size:11px;color:var(--yellow);margin-left:8px"></span>
+      </div>
+
+      <!-- Scripts list -->
+      <div class="dbg-scripts">
+        <div class="pane-title">Scripts <span id="script-count" style="color:var(--text0)">0</span></div>
+        <input type="text" id="script-filter" placeholder="Filter …" style="margin:6px;width:calc(100% - 12px)">
+        <div class="script-list" id="script-list"></div>
+      </div>
+
+      <!-- Source view -->
+      <div class="dbg-main">
+        <div class="source-toolbar">
+          <span id="src-filename" style="font-size:11px;color:var(--text1);font-family:var(--mono)">Kein Script geladen</span>
+          <div class="spacer"></div>
+          <input type="text" id="src-search" placeholder="Suche im Code …" style="width:180px">
+          <button id="btn-add-watch-from-src">+ Watch</button>
+        </div>
+        <div class="source-wrap" id="source-wrap">
+          <div class="empty" style="width:100%">
+            <div class="icon">📄</div>
+            <p>Script aus der Liste wählen</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Right pane: Watch, Scope, Call Stack -->
+      <div class="dbg-right">
+        <!-- Watch -->
+        <div class="dbg-section" style="flex:0 0 auto;max-height:200px">
+          <div class="dbg-section-title" onclick="App.dbg.toggleSection('watch')">
+            👁 Watch <span>+</span>
+          </div>
+          <div class="dbg-section-body" id="watch-body">
+            <div style="display:flex;gap:4px;margin-bottom:6px">
+              <input type="text" id="watch-input" placeholder="Ausdruck …" style="flex:1">
+              <button onclick="App.dbg.addWatch()">Add</button>
+            </div>
+            <div id="watch-list"></div>
+          </div>
+        </div>
+        <!-- Scope -->
+        <div class="dbg-section" style="flex:1;min-height:0">
+          <div class="dbg-section-title">📦 Scope</div>
+          <div class="dbg-section-body" id="scope-body" style="overflow-y:auto"></div>
+        </div>
+        <!-- Call Stack -->
+        <div class="dbg-section" style="flex:0 0 auto;max-height:180px">
+          <div class="dbg-section-title">📚 Call Stack</div>
+          <div class="dbg-section-body" id="callstack-body" style="overflow-y:auto"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ CONSOLE PANEL ═══════════════════════════════════════════════════ -->
+    <div class="panel" id="panel-console">
+      <div class="toolbar">
+        <button onclick="App.console.clear()">✕ Clear</button>
+        <label style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="chk-console-log" checked> log
+        </label>
+        <label style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="chk-console-warn" checked> warn
+        </label>
+        <label style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;">
+          <input type="checkbox" id="chk-console-error" checked> error
+        </label>
+        <div class="spacer"></div>
+        <span style="font-size:11px;color:var(--text1)">Einträge: <b id="console-count">0</b></span>
+      </div>
+      <div class="console-out" id="console-out"></div>
+      <div class="console-input-row">
+        <span class="console-prompt">&gt;&gt;</span>
+        <input type="text" id="console-input" placeholder="JavaScript ausführen …">
+        <button onclick="App.console.run()">Run</button>
+      </div>
+    </div>
+
+
+    <!-- ═══ API PANEL ════════════════════════════════════════════════════════ -->
+    <div class="panel" id="panel-api">
+      <div class="toolbar">
+        <input type="text" id="api-filter" placeholder="Filter Endpoint, Methode …">
+        <select id="api-method-filter">
+          <option value="">Alle Methoden</option>
+          <option value="GET">GET</option>
+          <option value="POST">POST</option>
+          <option value="PUT">PUT</option>
+          <option value="PATCH">PATCH</option>
+          <option value="DELETE">DELETE</option>
+        </select>
+        <label style="font-size:11px;color:var(--text1);display:flex;align-items:center;gap:4px;white-space:nowrap">
+          <input type="checkbox" id="chk-api-auth-only"> Nur Auth
+        </label>
+        <div class="spacer"></div>
+        <span style="font-size:11px;color:var(--text1)">Requests: <b id="api-count">0</b></span>
+        <button onclick="App.api.clear()">✕ Clear</button>
+      </div>
+      <div class="split">
+        <div class="split-left">
+          <div class="tbl-wrap" id="api-tbl-wrap" style="overscroll-behavior-y:contain;will-change:scroll-position">
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:28px">#</th>
+                  <th style="width:58px">Methode</th>
+                  <th style="width:52px">Status</th>
+                  <th style="width:80px">Auth</th>
+                  <th>Endpoint</th>
+                  <th style="width:52px">Payload</th>
+                  <th style="width:58px">Zeit</th>
+                </tr>
+              </thead>
+              <tbody id="api-tbody"></tbody>
+            </table>
+            <div class="empty" id="api-empty">
+              <div class="icon">📡</div>
+              <p>Noch keine API-Requests. CDP verbinden und Seite laden.</p>
+            </div>
+          </div>
+        </div>
+        <div class="resize-handle"></div>
+        <div class="split-right" id="api-detail">
+          <div class="empty"><div class="icon">←</div><p>Request auswählen</p></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /panels -->
+</div><!-- /app -->
+
+<div id="copy-toast">✓ Kopiert</div>
+<script src="src/renderer.js"></script>
+</body>
+</html>

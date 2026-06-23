@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Electron build output
+dist/
+out/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+electron-builder.log
+
+# Runtime / temp files
+*.tmp
+*.temp
+.cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+
+# Editor
+.vscode/launch.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Package manager lockfiles (keep package-lock.json, ignore others)
+yarn.lock
+pnpm-lock.yaml
+
+# Electron-specific
+app-update.yml
+builder-debug.yml
+builder-effective-config.yaml
