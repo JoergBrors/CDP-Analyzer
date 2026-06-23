@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>CDP Analyzer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #0d1117;
+  color: #e6edf3;
+  width: 100vw; height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  -webkit-app-region: drag;
+}
+
+/* ── Branding ── */
+.logo    { font-size: 24px; font-weight: 700; margin-bottom: 4px; }
+.logo em { color: #3b82f6; font-style: normal; }
+.sub     { font-size: 11px; color: #484f58; letter-spacing: 1.8px;
+           text-transform: uppercase; margin-bottom: 28px; }
+
+/* ── Card ── */
+.card {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 14px;
+  width: 440px;
+  padding: 28px 30px;
+  -webkit-app-region: no-drag;
+}
+
+/* ── Loading state ── */
+.loading {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.row { display: flex; align-items: center; gap: 12px; }
+.spinner {
+  width: 20px; height: 20px; flex-shrink: 0;
+  border: 2.5px solid #30363d;
+  border-top-color: #3b82f6;
+  border-radius: 50%;
+  animation: spin .65s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.phase-text { font-size: 14px; color: #c9d1d9; font-weight: 500; }
+
+.log {
+  background: #0d1117;
+  border: 1px solid #21262d;
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-height: 72px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  color: #6e7681;
+  line-height: 1.9;
+  overflow: hidden;
+}
+.log .entry        { display: flex; gap: 8px; }
+.log .entry .sym   { flex-shrink: 0; }
+.log .entry.ok .sym  { color: #3fb950; }
+.log .entry.err .sym { color: #f85149; }
+.log .entry.info .sym{ color: #3b82f6; }
+
+/* ── Content states ── */
+.state { display: none; }
+.state.active { display: block; }
+
+.state h3 { font-size: 16px; font-weight: 600; margin-bottom: 8px; color: #f0f6fc; }
+.state .desc { font-size: 13px; color: #8b949e; line-height: 1.6; margin-bottom: 20px; }
+
+/* ── Info-Box (Chrome-Pfad, Fehler) ── */
+.info-box {
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  line-height: 1.5;
+  word-break: break-all;
+  margin-bottom: 18px;
+}
+.info-box.path  { background: #0d1117; border: 1px solid #21262d; color: #8b949e; }
+.info-box.path .lbl { color: #3b82f6; font-weight: 600; display: block; margin-bottom: 2px; }
+.info-box.error { background: #160b0b; border: 1px solid #6e1a1a; color: #fca5a5; }
+
+.icon { font-size: 34px; text-align: center; margin-bottom: 10px; display: block; }
+
+/* ── Formular ── */
+.field { margin-bottom: 16px; }
+.label { font-size: 11px; color: #8b949e; margin-bottom: 5px; }
+.hint  { font-size: 11px; color: #484f58; margin-top: 4px; }
+input[type=text] {
+  width: 100%;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  color: #e6edf3;
+  font-size: 12px;
+  font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+  padding: 8px 10px;
+  outline: none;
+}
+input[type=text]:focus { border-color: #3b82f6; }
+
+/* ── Progress ── */
+.progress { margin: 14px 0 6px; }
+.bar { height: 3px; background: #21262d; border-radius: 2px; overflow: hidden; }
+.fill { height: 100%; background: #3b82f6; border-radius: 2px; width: 0; transition: width .35s; }
+.prog-label { font-size: 11px; color: #6e7681; margin-top: 5px; }
+
+/* ── Buttons ── */
+.btns { display: flex; gap: 8px; justify-content: flex-end; }
+button {
+  padding: 8px 18px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  font-size: 13px; font-weight: 500;
+  cursor: pointer;
+  transition: background .1s, opacity .1s;
+}
+button:active { opacity: .8; }
+.btn-primary { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+.btn-primary:hover { background: #2563eb; }
+.btn-primary:disabled { opacity: .45; cursor: default; }
+.btn-ghost { background: transparent; color: #8b949e; border-color: #30363d; }
+.btn-ghost:hover { background: #21262d; color: #e6edf3; }
+.btn-link { background: none; border: none; color: #3b82f6; font-size: 13px;
+            cursor: pointer; text-decoration: underline; padding: 0; }
+</style>
+</head>
+<body>
+
+<div class="logo"><em>CDP</em> Analyzer</div>
+<div class="sub">Browser Debug Bridge</div>
+
+<div class="card" id="card">
+
+  <!-- ── Lädt / Sucht ── -->
+  <div class="loading" id="stLoading">
+    <div class="row">
+      <div class="spinner"></div>
+      <span class="phase-text" id="phaseText">Initialisiere…</span>
+    </div>
+    <div class="log" id="logBox"></div>
+  </div>
+
+  <!-- ── Chrome nicht gefunden ── -->
+  <div class="state" id="stNotFound">
+    <span class="icon">🔍</span>
+    <h3>Chrome nicht gefunden</h3>
+    <p class="desc">
+      CDP Analyzer hat bekannte Installationspfade und den Spotlight-Index
+      durchsucht — Google Chrome wurde nicht gefunden.<br><br>
+      Bitte installiere Google Chrome und starte die App erneut.
+    </p>
+    <div class="btns">
+      <button type="button" class="btn-ghost" id="btnRetry">Erneut suchen</button>
+      <button type="button" class="btn-primary" id="btnDownload">Chrome herunterladen ↗</button>
+    </div>
+  </div>
+
+  <!-- ── Chrome starten ── -->
+  <div class="state" id="stStart">
+    <h3>Chrome im Debug-Modus starten</h3>
+    <p class="desc">Chrome ist installiert, läuft aber nicht mit Remote-Debugging auf Port 9222.</p>
+
+    <div class="info-box path" id="chromePaths" style="display:none">
+      <span class="lbl">Gefunden</span>
+      <span id="chromePathText"></span>
+    </div>
+
+    <div class="field">
+      <div class="label">Chrome-Profil-Verzeichnis</div>
+      <input type="text" id="profileInput" placeholder="Leer lassen → temporäres Profil">
+      <div class="hint">Eigenes Profil empfohlen, damit Einstellungen erhalten bleiben.</div>
+    </div>
+
+    <div class="progress" id="startProgress" style="display:none">
+      <div class="bar"><div class="fill" id="startFill"></div></div>
+      <div class="prog-label" id="startProgLabel">Chrome startet…</div>
+    </div>
+    <div class="info-box error" id="startError" style="display:none"></div>
+
+    <div class="btns">
+      <button type="button" class="btn-ghost" id="btnSkip">Ohne Chrome starten</button>
+      <button type="button" class="btn-primary" id="btnStart">Chrome starten</button>
+    </div>
+  </div>
+
+  <!-- ── Bereit ── -->
+  <div class="state" id="stReady">
+    <span class="icon">✅</span>
+    <h3>Chrome Debug aktiv</h3>
+    <div class="info-box path" id="readyPath" style="display:none">
+      <span class="lbl">Verbunden mit</span>
+      <span id="readyPathText"></span>
+    </div>
+    <p class="desc" id="readyDesc">Remote-Debugging läuft auf Port 9222.</p>
+    <div class="btns">
+      <button type="button" class="btn-primary" id="btnProceed">CDP Analyzer starten →</button>
+    </div>
+  </div>
+
+  <!-- ── Fehler ── -->
+  <div class="state" id="stError">
+    <span class="icon">⚠️</span>
+    <h3>Fehler</h3>
+    <div class="info-box error" id="globalError"></div>
+    <div class="btns">
+      <button type="button" class="btn-ghost" id="btnRetryErr">Erneut versuchen</button>
+      <button type="button" class="btn-primary" id="btnForce">Trotzdem starten</button>
+    </div>
+  </div>
+
+</div><!-- .card -->
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────────
+// Globaler Fehler-Catcher — zeigt alles was schiefgeht in der Card an
+// ─────────────────────────────────────────────────────────────────────────────
+window.onerror = (msg, src, line) => {
+  showError('JavaScript-Fehler: ' + msg + ' (' + src + ':' + line + ')');
+};
+window.onunhandledrejection = (e) => {
+  showError('Unbehandelter Promise-Fehler: ' + (e.reason?.message || e.reason));
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+let foundChromePath = null;
+
+function showOnly(id) {
+  document.getElementById('stLoading').style.display   = 'none';
+  ['stNotFound','stStart','stReady','stError'].forEach(s => {
+    const el = document.getElementById(s);
+    el.classList.toggle('active', s === id);
+  });
+}
+
+function showLoading(phase) {
+  document.getElementById('stLoading').style.display = '';
+  ['stNotFound','stStart','stReady','stError'].forEach(s =>
+    document.getElementById(s).classList.remove('active'));
+  document.getElementById('phaseText').textContent = phase;
+}
+
+function addLog(msg, type) { // type: 'ok' | 'err' | 'info' | ''
+  const box   = document.getElementById('logBox');
+  const entry = document.createElement('div');
+  entry.className = 'entry ' + (type || '');
+  const sym = type === 'ok' ? '✓' : type === 'err' ? '✗' : '›';
+  entry.innerHTML = `<span class="sym">${sym}</span><span>${escHtml(msg)}</span>`;
+  box.appendChild(entry);
+  box.scrollTop = box.scrollHeight;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function showError(msg) {
+  document.getElementById('globalError').textContent = msg;
+  showOnly('stError');
+  document.getElementById('btnRetryErr').onclick = init;
+  document.getElementById('btnForce').onclick    = proceed;
+}
+
+function proceed() {
+  if (window.splash) window.splash.proceed();
+}
+
+// ── Status-Events vom Main-Prozess ──────────────────────────────────────────
+if (window.splash) {
+  window.splash.onStatus(({ phase, msg }) => {
+    switch (phase) {
+      case 'checking-port':
+        showLoading('Prüfe Port 9222…');
+        addLog('Prüfe Chrome Remote-Debugging auf Port 9222…', 'info');
+        break;
+      case 'searching':
+        showLoading('Suche Chrome-Installation…');
+        addLog('Durchsuche bekannte Pfade, Spotlight und Registry…', 'info');
+        break;
+      case 'found':
+        addLog('Chrome gefunden: ' + msg, 'ok');
+        break;
+      case 'not-found':
+        addLog('Chrome nicht gefunden.', 'err');
+        break;
+    }
+  });
+}
+
+// ── Haupt-Init ───────────────────────────────────────────────────────────────
+async function init() {
+  showLoading('Initialisiere…');
+  document.getElementById('logBox').innerHTML = '';
+
+  if (!window.splash) {
+    showError('Preload-Script nicht geladen. Bitte App neu starten.');
+    return;
+  }
+
+  addLog('Starte Prüfung…', 'info');
+
+  let result;
+  try {
+    result = await window.splash.check();
+  } catch (e) {
+    showError('IPC-Fehler: ' + e.message);
+    return;
+  }
+
+  foundChromePath = result.chromePath;
+
+  if (result.debugRunning) {
+    addLog('Chrome Debug-Port 9222 ist aktiv.', 'ok');
+    showReady('Remote-Debugging läuft auf Port 9222.', null);
+    return;
+  }
+
+  if (!result.chromeInstalled) {
+    addLog('Chrome wurde nicht gefunden.', 'err');
+    showOnly('stNotFound');
+    document.getElementById('btnDownload').onclick = () =>
+      window.splash.openExternal('https://www.google.com/chrome/');
+    document.getElementById('btnRetry').onclick = init;
+    return;
+  }
+
+  // Chrome vorhanden, Debug nicht aktiv
+  addLog('Chrome gefunden, Debug-Port 9222 nicht aktiv.', '');
+  showOnly('stStart');
+
+  if (foundChromePath) {
+    document.getElementById('chromePathText').textContent = foundChromePath;
+    document.getElementById('chromePaths').style.display = '';
+  }
+  if (result.savedProfile) {
+    document.getElementById('profileInput').value = result.savedProfile;
+  }
+
+  document.getElementById('btnStart').onclick = startChrome;
+  document.getElementById('btnSkip').onclick  = proceed;
+  document.getElementById('profileInput').addEventListener('keydown', e => {
+    if (e.key === 'Enter') startChrome();
+  });
+}
+
+function showReady(desc, path) {
+  showOnly('stReady');
+  document.getElementById('readyDesc').textContent = desc;
+  if (path) {
+    document.getElementById('readyPathText').textContent = path;
+    document.getElementById('readyPath').style.display = '';
+  }
+  document.getElementById('btnProceed').onclick = proceed;
+}
+
+async function startChrome() {
+  const profilePath = document.getElementById('profileInput').value.trim();
+  const btn         = document.getElementById('btnStart');
+  const errBox      = document.getElementById('startError');
+  const progress    = document.getElementById('startProgress');
+  const fill        = document.getElementById('startFill');
+  const progLabel   = document.getElementById('startProgLabel');
+
+  btn.disabled = true;
+  errBox.style.display = 'none';
+  progress.style.display = '';
+  progLabel.textContent = 'Chrome startet…';
+
+  let pct = 0;
+  const iv = setInterval(() => {
+    pct = Math.min(pct + 5, 87);
+    fill.style.width = pct + '%';
+  }, 350);
+
+  let result;
+  try {
+    result = await window.splash.startChrome(profilePath || null);
+  } catch (e) {
+    result = { ok: false, error: e.message };
+  }
+
+  clearInterval(iv);
+
+  if (result.ok) {
+    fill.style.width = '100%';
+    progLabel.textContent = 'Chrome gestartet ✓';
+    setTimeout(() => showReady(
+      'Chrome wurde gestartet. Remote-Debugging läuft auf Port 9222.',
+      foundChromePath
+    ), 700);
+  } else {
+    progress.style.display = 'none';
+    fill.style.width = '0';
+    btn.disabled = false;
+    errBox.textContent = result.error || 'Chrome konnte nicht gestartet werden.';
+    errBox.style.display = '';
+  }
+}
+
+// ── Start ────────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

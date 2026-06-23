@@ -2,14 +2,118 @@
 'use strict';
 
 const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
-const path = require('path');
-const http = require('http');
-const https = require('https');
-const fs   = require('fs');
+const path     = require('path');
+const http     = require('http');
+const https    = require('https');
+const fs       = require('fs');
+const os       = require('os');
+const { spawn, execSync } = require('child_process');
 const WebSocket = require('ws');
 
-const CDP_PORT  = 9222;
-const KEY_FILE  = path.join(app.getPath('userData'), 'ai-key.json');
+const CDP_PORT    = 9222;
+const KEY_FILE    = path.join(app.getPath('userData'), 'ai-key.json');
+const PREFS_FILE  = path.join(app.getPath('userData'), 'prefs.json');
+
+// ── Chrome-Pfade je Plattform ─────────────────────────────────────────────────
+const CHROME_CANDIDATES = {
+  darwin: [
+    '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+    '/Applications/Chromium.app/Contents/MacOS/Chromium',
+    '/Applications/Google Chrome Canary.app/Contents/MacOS/Google Chrome Canary',
+  ],
+  win32: [
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA,  'Google\\Chrome\\Application\\chrome.exe'),
+    process.env.PROGRAMFILES && path.join(process.env.PROGRAMFILES,  'Google\\Chrome\\Application\\chrome.exe'),
+    process.env['PROGRAMFILES(X86)'] && path.join(process.env['PROGRAMFILES(X86)'], 'Google\\Chrome\\Application\\chrome.exe'),
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA,  'Chromium\\Application\\chrome.exe'),
+  ].filter(Boolean),
+  linux: [
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    '/snap/bin/chromium',
+  ],
+};
+
+function findChrome() {
+  // 1. Bekannte Pfade
+  const candidates = CHROME_CANDIDATES[process.platform] || [];
+  for (const p of candidates) {
+    if (p && fs.existsSync(p)) return p;
+  }
+
+  // 2. macOS: Spotlight (mdfind) — findet Chrome auch in ungewöhnlichen Installationspfaden
+  if (process.platform === 'darwin') {
+    const searches = [
+      { id: 'com.google.Chrome',        bin: 'Google Chrome' },
+      { id: 'com.google.Chrome.canary', bin: 'Google Chrome Canary' },
+      { id: 'org.chromium.Chromium',    bin: 'Chromium' },
+    ];
+    for (const { id, bin } of searches) {
+      try {
+        const apps = execSync(
+          `mdfind "kMDItemCFBundleIdentifier == '${id}'" 2>/dev/null`,
+          { timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] }
+        ).toString().trim().split('\n').filter(Boolean);
+        for (const appPath of apps) {
+          const binary = path.join(appPath, 'Contents', 'MacOS', bin);
+          if (fs.existsSync(binary)) return binary;
+        }
+      } catch { /* mdfind nicht verfügbar */ }
+    }
+  }
+
+  // 3. Windows: Registry-Suche via PowerShell
+  if (process.platform === 'win32') {
+    try {
+      const result = execSync(
+        'powershell -NoProfile -Command "(Get-ItemProperty -Path \'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe\' -ErrorAction SilentlyContinue).(default)"',
+        { timeout: 4000, stdio: ['ignore', 'pipe', 'ignore'] }
+      ).toString().trim();
+      if (result && fs.existsSync(result)) return result;
+    } catch { /* Registry nicht verfügbar */ }
+  }
+
+  // 4. PATH-Fallback
+  try {
+    const cmd = process.platform === 'win32' ? 'where chrome' : 'which google-chrome 2>/dev/null || which chromium 2>/dev/null';
+    const found = execSync(cmd, { timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim().split('\n')[0];
+    if (found && fs.existsSync(found)) return found;
+  } catch {}
+
+  return null;
+}
+
+function checkChromeDebug() {
+  return new Promise((resolve) => {
+    const req = http.get(
+      { hostname: '127.0.0.1', port: CDP_PORT, path: '/json/version', timeout: 1500 },
+      (res) => { res.resume(); resolve(res.statusCode === 200); }
+    );
+    req.on('error', () => resolve(false));
+    req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+
+function waitForChromeDebug(maxMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const poll = () => checkChromeDebug().then(ok => {
+      if (ok) return resolve();
+      if (Date.now() - start > maxMs) return reject(new Error('Timeout: Chrome Debug-Port nicht erreichbar'));
+      setTimeout(poll, 400);
+    });
+    poll();
+  });
+}
+
+function loadPrefs() {
+  try { return JSON.parse(fs.readFileSync(PREFS_FILE, 'utf8')); } catch { return {}; }
+}
+function savePrefs(prefs) {
+  try { fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2), 'utf8'); } catch {}
+}
 
 // In den Seiten-Kontext injiziertes Script: überschreibt die nativen Netzwerk-
 // APIs und meldet jeden Aufruf über die CDP-Binding __cdpHidden zurück.
@@ -71,8 +175,9 @@ const HOOK_SOURCE = `(function(){
   }
 })();`;
 
-let mainWindow = null;
-let aiWindow   = null;        // AI-Chat-Fenster
+let mainWindow   = null;
+let splashWindow = null;
+let aiWindow     = null;        // AI-Chat-Fenster
 let cdpWs = null;             // WebSocket zum Browser-Target
 let callbackMap = new Map();  // id → callback für CDP-Antworten
 let cdpMsgId = 1;
@@ -107,6 +212,26 @@ function evictBodyCache() {
 }
 
 // ── Fenster erstellen ────────────────────────────────────────────────────────
+function createSplashWindow() {
+  splashWindow = new BrowserWindow({
+    width: 500,
+    height: 420,
+    resizable: false,
+    center: true,
+    frame: false,
+    show: false,
+    backgroundColor: '#0d1117',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload-splash.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+    title: 'CDP Analyzer',
+  });
+  splashWindow.loadFile(path.join(__dirname, 'splash.html'));
+  splashWindow.once('ready-to-show', () => splashWindow.show());
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -114,6 +239,7 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 700,
     backgroundColor: '#0d1117',
+    show: false,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -123,6 +249,7 @@ function createWindow() {
     title: 'CDP Analyzer',
   });
   mainWindow.loadFile(path.join(__dirname, '..', 'index.html'));
+  mainWindow.once('ready-to-show', () => mainWindow.show());
 }
 
 function createAiWindow() {
@@ -145,7 +272,7 @@ function createAiWindow() {
   aiWindow.on('closed', () => { aiWindow = null; });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(createSplashWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 
@@ -346,6 +473,74 @@ async function onTargetAttached(params) {
     }
   } catch (_) { /* manche Targets erlauben kein Network.enable */ }
 }
+
+// ── Splash IPC Handler ───────────────────────────────────────────────────────
+
+ipcMain.handle('splash:check', async () => {
+  const send = (phase, msg) =>
+    splashWindow?.webContents?.send('splash:status', { phase, msg });
+
+  send('checking-port', 'Prüfe Chrome Remote-Debugging auf Port 9222…');
+  const debugRunning = await checkChromeDebug();
+  const prefs        = loadPrefs();
+
+  if (debugRunning) {
+    return { chromeInstalled: true, debugRunning: true,
+             chromePath: null, savedProfile: prefs.chromeProfile || null };
+  }
+
+  send('searching', 'Suche Chrome-Installation im System…');
+  const chromePath = findChrome();
+
+  if (chromePath) {
+    send('found', chromePath);
+  } else {
+    send('not-found', 'Chrome wurde nicht gefunden.');
+  }
+
+  return { chromeInstalled: !!chromePath, debugRunning: false,
+           chromePath, savedProfile: prefs.chromeProfile || null };
+});
+
+ipcMain.handle('splash:startChrome', async (_, profileDir) => {
+  const chromePath = findChrome();
+  if (!chromePath) return { ok: false, error: 'Chrome nicht gefunden.' };
+
+  const profile = profileDir || path.join(os.tmpdir(), 'cdp-debug-profile');
+  // Profilpfad merken
+  const prefs = loadPrefs();
+  prefs.chromeProfile = profileDir || '';
+  savePrefs(prefs);
+
+  const args = [
+    `--remote-debugging-port=${CDP_PORT}`,
+    '--no-first-run',
+    '--no-default-browser-check',
+    `--user-data-dir=${profile}`,
+  ];
+
+  try {
+    const child = spawn(chromePath, args, {
+      detached: true,
+      stdio: 'ignore',
+      ...(process.platform === 'win32' ? { windowsHide: false } : {}),
+    });
+    child.unref();
+
+    await waitForChromeDebug(8000);
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
+
+ipcMain.on('splash:proceed', () => {
+  createWindow();
+  if (splashWindow && !splashWindow.isDestroyed()) {
+    splashWindow.close();
+    splashWindow = null;
+  }
+});
 
 // ── IPC Handler (Renderer → Main) ────────────────────────────────────────────
 

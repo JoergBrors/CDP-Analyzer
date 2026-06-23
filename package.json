@@ -4,8 +4,9 @@
   "description": "CDP Browser Analysis Tool — Network, Assets, JS Debugger",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev"
+    "start": "node launch.js",
+    "dev": "node launch.js --dev",
+    "electron": "electron ."
   },
   "dependencies": {
     "electron": "^30.0.0",
