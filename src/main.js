@@ -1,7 +1,7 @@
 // src/main.js — Electron Main Process
 'use strict';
 
-const { app, BrowserWindow, ipcMain, shell, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, Menu, shell, safeStorage } = require('electron');
 const path     = require('path');
 const http     = require('http');
 const https    = require('https');
@@ -113,6 +113,60 @@ function loadPrefs() {
 }
 function savePrefs(prefs) {
   try { fs.writeFileSync(PREFS_FILE, JSON.stringify(prefs, null, 2), 'utf8'); } catch {}
+}
+
+function createAppMenu() {
+  const version = app.getVersion();
+
+  app.setAboutPanelOptions({
+    applicationName: 'CDP Analyzer',
+    applicationVersion: version,
+    version,
+  });
+
+  const fileMenu = process.platform === 'darwin'
+    ? { label: 'Ablage', submenu: [{ role: 'close' }] }
+    : { label: 'Datei', submenu: [{ role: 'quit', label: 'Beenden' }] };
+
+  const template = [
+    ...(process.platform === 'darwin' ? [{
+      label: 'CDP Analyzer',
+      submenu: [
+        { label: `Version ${version}`, enabled: false },
+        { role: 'about', label: 'Über CDP Analyzer' },
+        { type: 'separator' },
+        { role: 'services', label: 'Dienste' },
+        { type: 'separator' },
+        { role: 'hide', label: 'CDP Analyzer ausblenden' },
+        { role: 'hideOthers', label: 'Andere ausblenden' },
+        { role: 'unhide', label: 'Alle einblenden' },
+        { type: 'separator' },
+        { role: 'quit', label: 'CDP Analyzer beenden' },
+      ],
+    }] : []),
+    fileMenu,
+    {
+      label: 'Ansicht',
+      submenu: [
+        { role: 'reload', label: 'Neu laden' },
+        { role: 'toggleDevTools', label: 'Entwicklertools umschalten' },
+        { type: 'separator' },
+        { role: 'resetZoom', label: 'Originalgröße' },
+        { role: 'zoomIn', label: 'Vergrößern' },
+        { role: 'zoomOut', label: 'Verkleinern' },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: 'Vollbild umschalten' },
+      ],
+    },
+    {
+      label: 'Hilfe',
+      submenu: [
+        { label: `Version ${version}`, enabled: false },
+      ],
+    },
+  ];
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 // In den Seiten-Kontext injiziertes Script: überschreibt die nativen Netzwerk-
@@ -273,7 +327,10 @@ function createAiWindow() {
   aiWindow.on('closed', () => { aiWindow = null; });
 }
 
-app.whenReady().then(createSplashWindow);
+app.whenReady().then(() => {
+  createAppMenu();
+  createSplashWindow();
+});
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 

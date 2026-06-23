@@ -2,14 +2,79 @@
   "name": "cdp-analyzer",
   "version": "1.0.0",
   "description": "CDP Browser Analysis Tool — Network, Assets, JS Debugger",
+  "author": "CDP Analyzer Contributors",
+  "license": "MIT",
   "main": "src/main.js",
   "scripts": {
     "start": "node launch.js",
     "dev": "node launch.js --dev",
-    "electron": "electron ."
+    "electron": "electron .",
+    "dist:mac:arm": "electron-builder --mac --arm64",
+    "dist:win": "electron-builder --win --x64"
+  },
+  "build": {
+    "appId": "de.cdp-analyzer.app",
+    "productName": "CDP Analyzer",
+    "artifactName": "CDP-Analyzer-${os}-${arch}.${ext}",
+    "asar": true,
+    "files": [
+      "src/**/*",
+      "index.html",
+      "ai-chat.html",
+      "launch.js",
+      "package.json",
+      "LICENSE",
+      "README.md"
+    ],
+    "directories": {
+      "output": "dist"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "pkg",
+          "arch": [
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64"
+          ]
+        }
+      ]
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   },
   "dependencies": {
-    "electron": "^30.0.0",
     "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "electron": "^30.0.0",
+    "electron-builder": "^26.15.3"
   }
 }

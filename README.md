@@ -72,6 +72,32 @@ npm install
 
 ---
 
+## Release bauen
+
+Releases werden über Git-Tags ausgelöst. Ein Tag im Format `v0.0.1`
+setzt im GitHub-Action-Build automatisch die App-Version auf `0.0.1`,
+baut die Installer und veröffentlicht sie als GitHub Release.
+
+```bash
+git tag v0.0.1
+git push origin v0.0.1
+```
+
+Die Action erstellt:
+
+- macOS ARM64 Paket ohne Rosetta-Abhängigkeit (`.pkg`, `.dmg` und `.zip`)
+- Windows x64 Installer (`.exe`)
+
+Die gebaute Version ist in der Anwendung im nativen Menü sichtbar.
+
+Stabile Latest-Download-Links:
+
+- macOS ARM64 PKG: <https://github.com/JoergBrors/CDP-Analyzer/releases/latest/download/CDP-Analyzer-mac-arm64.pkg>
+- macOS ARM64 DMG: <https://github.com/JoergBrors/CDP-Analyzer/releases/latest/download/CDP-Analyzer-mac-arm64.dmg>
+- Windows x64 Installer: <https://github.com/JoergBrors/CDP-Analyzer/releases/latest/download/CDP-Analyzer-win-x64.exe>
+
+---
+
 ## Starten
 
 ```bash
