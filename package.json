@@ -9,8 +9,8 @@
     "start": "node launch.js",
     "dev": "node launch.js --dev",
     "electron": "electron .",
-    "dist:mac:arm": "electron-builder --mac --arm64",
-    "dist:win": "electron-builder --win --x64"
+    "dist:mac:arm": "electron-builder --mac --arm64 --publish never",
+    "dist:win": "electron-builder --win --x64 --publish never"
   },
   "build": {
     "appId": "de.cdp-analyzer.app",
@@ -31,6 +31,7 @@
     },
     "mac": {
       "category": "public.app-category.developer-tools",
+      "identity": null,
       "target": [
         {
           "target": "dmg",
